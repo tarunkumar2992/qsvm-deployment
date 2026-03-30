@@ -1,0 +1,56 @@
+groups:
+  - name: qsvm_api_alerts
+    rules:
+
+      # API down
+      - alert: QSVMApiDown
+        expr: up{job="qsvm-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "QSVM API is down"
+          description: "The QSVM inference API has been unreachable for > 1 minute."
+
+      # High error rate (5xx)
+      - alert: HighErrorRate
+        expr: |
+          rate(qsvm_requests_total{status=~"5.."}[5m])
+          / rate(qsvm_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 5xx error rate"
+          description: "Error rate > 5% for the last 2 minutes."
+
+      # High latency
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, rate(qsvm_request_duration_seconds_bucket{endpoint="/predict"}[5m])) > 5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High p95 inference latency"
+          description: "p95 latency on /predict > 5s for 3 minutes."
+
+      # Model not loaded
+      - alert: ModelNotLoaded
+        expr: qsvm_model_load_duration_seconds == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "QSVM model did not load"
+          description: "Model load duration is 0 — model may have failed to initialize."
+
+      # High active requests (potential overload)
+      - alert: HighConcurrency
+        expr: qsvm_active_requests > 20
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High concurrent requests"
+          description: "More than 20 concurrent requests in flight."

@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qsvm-api-config
+  namespace: qsvm-prod
+data:
+  MODEL_DIR: "/app/artifacts"
+  LOG_LEVEL: "info"
+  WORKERS: "2"
+  ALLOWED_ORIGINS: "https://your-frontend.example.com"
+
+---
+# Real secrets must be managed via Vault / Sealed Secrets / External Secrets Operator
+# This is a placeholder — never commit real values
+apiVersion: v1
+kind: Secret
+metadata:
+  name: qsvm-api-secrets
+  namespace: qsvm-prod
+type: Opaque
+stringData:
+  SLACK_WEBHOOK_URL: "REPLACE_WITH_VAULT_REF"

@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qsvm-api
+  namespace: qsvm-prod
+  labels:
+    app: qsvm-api
+    version: "1.0.0"
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: qsvm-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0      # Zero downtime: keep all pods during rollout
+      maxSurge: 1            # Spin up 1 extra pod at a time
+  template:
+    metadata:
+      labels:
+        app: qsvm-api
+        version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: qsvm-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+
+      # Pre-pull model artifacts from object storage (init container pattern)
+      initContainers:
+        - name: model-loader
+          image: amazon/aws-cli:latest      # swap for gsutil/az if on GCP/Azure
+          command:
+            - sh
+            - -c
+            - |
+              aws s3 cp s3://${MODEL_BUCKET}/artifacts/ /app/artifacts/ --recursive
+          envFrom:
+            - secretRef:
+                name: qsvm-api-secrets
+          env:
+            - name: MODEL_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: qsvm-api-config
+                  key: MODEL_BUCKET
+                  optional: true
+          volumeMounts:
+            - name: artifacts
+              mountPath: /app/artifacts
+
+      containers:
+        - name: qsvm-api
+          image: ghcr.io/YOUR_ORG/qsvm-api:latest  # replaced by CI
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          envFrom:
+            - configMapRef:
+                name: qsvm-api-config
+            - secretRef:
+                name: qsvm-api-secrets
+          volumeMounts:
+            - name: artifacts
+              mountPath: /app/artifacts
+              readOnly: true
+
+          # Resource limits — tune based on QSVM kernel compute requirements
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "3Gi"
+
+          # Startup probe: allow time for model to load before health checks fire
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 30
+            periodSeconds: 5
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]   # drain in-flight requests
+
+      volumes:
+        - name: artifacts
+          emptyDir: {}
+
+      # Spread pods across nodes for HA
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: qsvm-api
+
+      terminationGracePeriodSeconds: 30

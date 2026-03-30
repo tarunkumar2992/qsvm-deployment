@@ -1,0 +1,104 @@
+# ── Service ────────────────────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: qsvm-api
+  namespace: qsvm-prod
+  labels:
+    app: qsvm-api
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8000"
+spec:
+  selector:
+    app: qsvm-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP
+
+---
+# ── Ingress (nginx) ────────────────────────────────────────────────────────────
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: qsvm-api-ingress
+  namespace: qsvm-prod
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/rate-limit: "100"               # req/s per IP
+    nginx.ingress.kubernetes.io/rate-limit-burst: "200"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - qsvm-api.example.com
+      secretName: qsvm-api-tls
+  rules:
+    - host: qsvm-api.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: qsvm-api
+                port:
+                  number: 80
+
+---
+# ── Horizontal Pod Autoscaler ──────────────────────────────────────────────────
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: qsvm-api-hpa
+  namespace: qsvm-prod
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: qsvm-api
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+
+---
+# ── Pod Disruption Budget (ensures HA during rolling updates) ──────────────────
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: qsvm-api-pdb
+  namespace: qsvm-prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: qsvm-api

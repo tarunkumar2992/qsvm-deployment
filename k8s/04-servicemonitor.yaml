@@ -1,0 +1,17 @@
+# If using kube-prometheus-stack (Prometheus Operator), this auto-registers the scrape target
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: qsvm-api-monitor
+  namespace: qsvm-prod
+  labels:
+    release: kube-prometheus-stack    # must match your Prometheus operator selector
+spec:
+  selector:
+    matchLabels:
+      app: qsvm-api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

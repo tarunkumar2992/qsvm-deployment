@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: qsvm-prod
+  labels:
+    app: qsvm-api
+    environment: production
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qsvm-api
+  namespace: qsvm-prod
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: qsvm-api-role
+  namespace: qsvm-prod
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: qsvm-api-rolebinding
+  namespace: qsvm-prod
+subjects:
+  - kind: ServiceAccount
+    name: qsvm-api
+    namespace: qsvm-prod
+roleRef:
+  kind: Role
+  name: qsvm-api-role
+  apiGroup: rbac.authorization.k8s.io
